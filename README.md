@@ -2,6 +2,8 @@
 
 Helpers for authentication & authorization patterns for [eoAPI applications](https://eoapi.dev).
 
+[![PyPI - Version](https://img.shields.io/pypi/v/eoapi.auth-utils)](https://pypi.org/project/eoapi.auth-utils/)
+
 ## Development
 
 ### Releases
