@@ -15,14 +15,14 @@ authors = [
   {name = "Anthony Lukach", email = "anthony@developmentseed.org"},
 ]
 dependencies = [
+  "fastapi-slim>=0.111.0",
   "pydantic-settings>=2.2.1",
   "pyjwt>=2.9.0",
   "cryptography>=43.0.0",
-  "fastapi-authorization-gateway>=0.0.3",
 ]
 description = "Authentication & authorization helpers for eoAPI"
 dynamic = ["version"]
-license = {text = "MIT"}
+license = {file = "LICENSE"}
 name = "eoapi.auth_utils"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -32,10 +32,3 @@ testing = [
   "pytest>=6.0",
   "coverage",
 ]
-
-[tool.setuptools]
-include-package-data = true
-py-modules = ["eoapi.auth_utils"]
-
-[tool.setuptools.packages.find]
-where = ["src"]
