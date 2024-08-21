@@ -1,0 +1,24 @@
+name: Lint
+
+on:
+  push:
+    paths:
+      - "eoapi/**"
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install pre-commit
+        run: pip install -e ".[lint]"
+
+      - name: Run pre-commit
+        run: pre-commit run --all-files

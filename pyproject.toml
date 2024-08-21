@@ -28,6 +28,9 @@ readme = "README.md"
 requires-python = ">=3.8"
 
 [project.optional-dependencies]
+lint = [
+  "pre-commit",
+]
 testing = [
   "pytest>=6.0",
   "coverage",

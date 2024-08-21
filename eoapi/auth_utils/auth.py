@@ -2,7 +2,7 @@ import json
 import logging
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Annotated, Any, Callable, Dict, Optional, Sequence, TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Optional, Sequence
 
 import jwt
 from fastapi import HTTPException, Security, routing, security, status
@@ -55,7 +55,7 @@ class OpenIdConnectAuth:
         )
 
     @classmethod
-    def from_settings(cls, settings: 'OpenIdConnectSettings') -> 'OpenIdConnectAuth':
+    def from_settings(cls, settings: "OpenIdConnectSettings") -> "OpenIdConnectAuth":
         return cls(**settings.model_dump(include=cls.__dataclass_fields__.keys()))
 
     @staticmethod
