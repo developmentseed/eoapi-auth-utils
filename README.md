@@ -21,7 +21,10 @@ from eoapi.auth_utils import AuthSettings, OpenIdConnectAuth
 from fastapi import FastAPI
 from stac_fastapi.api.app import StacApi
 
+from .config import ApiSettings
+
 auth_settings = AuthSettings(_env_prefix="AUTH_")
+api_settings = ApiSettings()
 
 api = StacApi(
     app=FastAPI(
@@ -44,9 +47,9 @@ if auth_settings.openid_configuration_url:
             "POST",
             "PUT",
             "DELETE",
-            *([] if auth_settings.public_reads else ["GET"]),
+            *([] if api_settings.public_reads else ["GET"]),
         ],
-        "/search": [] if auth_settings.public_reads else ["POST", "GET"],
+        "/search": [] if api_settings.public_reads else ["POST", "GET"],
     }
     for route in app.routes:
         should_restrict = any(

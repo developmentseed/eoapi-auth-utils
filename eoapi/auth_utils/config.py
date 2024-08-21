@@ -13,8 +13,6 @@ class OpenIdConnectSettings(BaseSettings):
 
     allowed_jwt_audiences: Optional[Sequence[str]] = []
 
-    public_reads: bool = True
-
     model_config = {
         "env_prefix": "EOAPI_AUTH_",
         "env_file": ".env",
