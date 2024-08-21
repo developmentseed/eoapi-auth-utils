@@ -2,7 +2,7 @@ import json
 import logging
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Annotated, Any, Callable, Dict, Optional, Sequence
+from typing import Annotated, Any, Callable, Dict, Optional, Sequence, TYPE_CHECKING
 
 import jwt
 from fastapi import HTTPException, Security, routing, security, status
@@ -11,6 +11,9 @@ from fastapi.security.base import SecurityBase
 from pydantic import AnyHttpUrl
 
 from .types import OidcFetchError
+
+if TYPE_CHECKING:
+    from .config import OpenIdConnectSettings
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +54,10 @@ class OpenIdConnectAuth:
             jwks_client=self.jwks_client,
             allowed_jwt_audiences=self.allowed_jwt_audiences,
         )
+
+    @classmethod
+    def from_settings(cls, settings: 'OpenIdConnectSettings') -> 'OpenIdConnectAuth':
+        return cls(**settings.model_dump(include=cls.__dataclass_fields__.keys()))
 
     @staticmethod
     def create_auth_token_dependency(
