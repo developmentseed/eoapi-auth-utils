@@ -4,7 +4,7 @@ from pydantic import AnyHttpUrl
 from pydantic_settings import BaseSettings
 
 
-class AuthSettings(BaseSettings):
+class OpenIdConnectSettings(BaseSettings):
     # Swagger UI config for Authorization Code Flow
     client_id: str = ""
     use_pkce: bool = True
