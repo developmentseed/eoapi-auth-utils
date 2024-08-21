@@ -10,7 +10,7 @@ from fastapi.dependencies.utils import get_parameterless_sub_dependant
 from fastapi.security.base import SecurityBase
 from pydantic import AnyHttpUrl
 
-from .types import OidcFetchError
+from .errors import OidcFetchError
 
 if TYPE_CHECKING:
     from .config import OpenIdConnectSettings

@@ -1,10 +1,6 @@
 from typing import Optional, TypedDict
 
 
-class OidcFetchError(Exception):
-    pass
-
-
 class Scope(TypedDict, total=False):
     """More strict version of Starlette's Scope."""
 

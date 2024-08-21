@@ -1,0 +1,2 @@
+class OidcFetchError(Exception):
+    pass
