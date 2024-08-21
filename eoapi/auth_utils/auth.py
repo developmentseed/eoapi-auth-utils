@@ -23,7 +23,6 @@ class OpenIdConnectAuth:
     openid_configuration_url: AnyHttpUrl
     openid_configuration_internal_url: Optional[AnyHttpUrl] = None
     allowed_jwt_audiences: Optional[Sequence[str]] = None
-    oauth2_supported_scopes: Dict[str, str] = field(default_factory=dict)
 
     # Generated attributes
     auth_scheme: SecurityBase = field(init=False)
