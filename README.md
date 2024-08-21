@@ -4,6 +4,61 @@ Helpers for authentication & authorization patterns for [eoAPI applications](htt
 
 [![PyPI - Version](https://img.shields.io/pypi/v/eoapi.auth-utils)](https://pypi.org/project/eoapi.auth-utils/)
 
+## Usage
+
+### Installation
+
+```
+pip install eoapi.auth-utils
+```
+
+### Integration
+
+In your eoAPI application:
+
+```py
+from eoapi.auth_utils import AuthSettings, OpenIdConnectAuth
+from fastapi import FastAPI
+from stac_fastapi.api.app import StacApi
+
+auth_settings = AuthSettings(_env_prefix="AUTH_")
+
+api = StacApi(
+    app=FastAPI(
+        # ...
+        swagger_ui_init_oauth={
+            "clientId": auth_settings.client_id,
+            "usePkceWithAuthorizationCodeGrant": auth_settings.use_pkce,
+        },
+    ),
+    # ...
+)
+app = api.app
+
+if auth_settings.openid_configuration_url:
+    oidc_auth = OpenIdConnectAuth.from_settings(auth_settings)
+
+    # Implement our auth logic...
+    restricted_prefixes_methods = {
+        "/collections": [
+            "POST",
+            "PUT",
+            "DELETE",
+            *([] if auth_settings.public_reads else ["GET"]),
+        ],
+        "/search": [] if auth_settings.public_reads else ["POST", "GET"],
+    }
+    for route in app.routes:
+        should_restrict = any(
+            route.path.startswith(f"{app.root_path}{prefix}")
+            and set(route.methods).intersection(set(restricted_methods))
+            for prefix, restricted_methods in restricted_prefixes_methods.items()
+        )
+        if should_restrict:
+            oidc_auth.apply_auth_dependencies(route, required_token_scopes=[])
+```
+
+
 ## Development
 
 ### Releases
