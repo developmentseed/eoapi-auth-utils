@@ -69,28 +69,31 @@ class OpenIdConnectAuth:
         """
 
         def auth_token(
-            token_str: Annotated[str, Security(auth_scheme)],
+            auth_header: Annotated[str, Security(auth_scheme)],
             required_scopes: security.SecurityScopes,
         ):
-            token_parts = token_str.split(" ")
+            # Extract token from header
+            token_parts = auth_header.split(" ")
             if len(token_parts) != 2 or token_parts[0].lower() != "bearer":
+                logger.error(f"Invalid token: {auth_header}")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid authorization header",
+                    detail="Could not validate credentials",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
-            else:
-                [_, token] = token_parts
+            [_, token] = token_parts
+
             # Parse & validate token
             try:
+                key = jwks_client.get_signing_key_from_jwt(token).key
                 payload = jwt.decode(
                     token,
-                    jwks_client.get_signing_key_from_jwt(token).key,
+                    key,
                     algorithms=["RS256"],
                     # NOTE: Audience validation MUST match audience claim if set in token (https://pyjwt.readthedocs.io/en/stable/changelog.html?highlight=audience#id40)
                     audience=allowed_jwt_audiences,
                 )
-            except jwt.exceptions.InvalidTokenError as e:
+            except (jwt.exceptions.InvalidTokenError, jwt.exceptions.DecodeError) as e:
                 logger.exception(f"InvalidTokenError: {e=}")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -124,7 +127,7 @@ class OpenIdConnectAuth:
         """
         # Ignore paths without dependants, e.g. /api, /api.html, /docs/oauth2-redirect
         if not hasattr(api_route, "dependant"):
-            logger.warn(
+            logger.warning(
                 f"Route {api_route} has no dependant, not apply auth dependency"
             )
             return

@@ -1,12 +1,13 @@
-name: Lint
+name: Test
 
 on:
   push:
     paths:
       - "**/*.py"
+      - "pyproject.toml"
 
 jobs:
-  pre-commit:
+  pytest:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,8 +18,8 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Install pre-commit
-        run: pip install -e ".[lint]"
+      - name: Install dependencies
+        run: pip install -e ".[testing]"
 
-      - name: Run pre-commit
-        run: pre-commit run --all-files
+      - name: Run tests
+        run: pytest

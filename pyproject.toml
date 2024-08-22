@@ -15,10 +15,10 @@ authors = [
   {name = "Anthony Lukach", email = "anthony@developmentseed.org"},
 ]
 dependencies = [
+  "cryptography>=43.0.0",
   "fastapi-slim>=0.111.0",
   "pydantic-settings>=2.2.1",
   "pyjwt>=2.9.0",
-  "cryptography>=43.0.0",
 ]
 description = "Authentication & authorization helpers for eoAPI"
 dynamic = ["version"]
@@ -32,6 +32,8 @@ lint = [
   "pre-commit",
 ]
 testing = [
-  "pytest>=6.0",
   "coverage",
+  "httpx>=0.27.0",
+  "jwcrypto>=1.5.6",
+  "pytest>=6.0",
 ]
