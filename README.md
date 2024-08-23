@@ -39,7 +39,7 @@ if auth_settings.openid_configuration_url:
     oidc_auth = OpenIdConnectAuth.from_settings(auth_settings)
 
     # Implement your custom app-specific auth logic here...
-    restricted_prefixes_methods = {
+    restricted_routes = {
         "/collections": ("POST", "stac:collection:create"),
         "/collections/{collection_id}": ("PUT", "stac:collection:update"),
         "/collections/{collection_id}": ("DELETE", "stac:collection:delete"),
@@ -47,11 +47,11 @@ if auth_settings.openid_configuration_url:
         "/collections/{collection_id}/items/{item_id}": ("PUT", "stac:item:update"),
         "/collections/{collection_id}/items/{item_id}": ("DELETE", "stac:item:delete"),
     }
-    route_lookup = {
+    api_routes = {
         route.path: route for route in api.app.routes if isinstance(route, APIRoute)
     }
-    for endpoint, (method, scope) in restricted_prefixes_methods.items():
-        route = route_lookup.get(endpoint)
+    for endpoint, (method, scope) in restricted_routes.items():
+        route = api_routes.get(endpoint)
         if route and method in route.methods:
             oidc_auth.apply_auth_dependencies(route, required_token_scopes=[scope])
 ```
