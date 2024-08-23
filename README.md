@@ -19,12 +19,10 @@ In your eoAPI application:
 ```py
 from eoapi.auth_utils import AuthSettings, OpenIdConnectAuth
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from stac_fastapi.api.app import StacApi
 
-from .config import ApiSettings
-
 auth_settings = AuthSettings(_env_prefix="AUTH_")
-api_settings = ApiSettings()
 
 api = StacApi(
     app=FastAPI(
@@ -36,29 +34,26 @@ api = StacApi(
     ),
     # ...
 )
-app = api.app
 
 if auth_settings.openid_configuration_url:
     oidc_auth = OpenIdConnectAuth.from_settings(auth_settings)
 
-    # Implement our auth logic...
+    # Implement custom auth logic...
     restricted_prefixes_methods = {
-        "/collections": [
-            "POST",
-            "PUT",
-            "DELETE",
-            *([] if api_settings.public_reads else ["GET"]),
-        ],
-        "/search": [] if api_settings.public_reads else ["POST", "GET"],
+        "/collections": ("POST", "stac:collection:create"),
+        "/collections/{collection_id}": ("PUT", "stac:collection:update"),
+        "/collections/{collection_id}": ("DELETE", "stac:collection:delete"),
+        "/collections/{collection_id}/items": ("POST", "stac:item:create"),
+        "/collections/{collection_id}/items/{item_id}": ("PUT", "stac:item:update"),
+        "/collections/{collection_id}/items/{item_id}": ("DELETE", "stac:item:delete"),
     }
-    for route in app.routes:
-        should_restrict = any(
-            route.path.startswith(f"{app.root_path}{prefix}")
-            and set(route.methods).intersection(set(restricted_methods))
-            for prefix, restricted_methods in restricted_prefixes_methods.items()
-        )
-        if should_restrict:
-            oidc_auth.apply_auth_dependencies(route, required_token_scopes=[])
+    route_lookup = {
+        route.path: route for route in api.app.routes if isinstance(route, APIRoute)
+    }
+    for endpoint, (method, scope) in restricted_prefixes_methods.items():
+        route = route_lookup.get(endpoint)
+        if route and method in route.methods:
+            oidc_auth.apply_auth_dependencies(route, required_token_scopes=[scope])
 ```
 
 
