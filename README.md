@@ -38,7 +38,7 @@ api = StacApi(
 if auth_settings.openid_configuration_url:
     oidc_auth = OpenIdConnectAuth.from_settings(auth_settings)
 
-    # Implement custom auth logic...
+    # Implement your custom app-specific auth logic here...
     restricted_prefixes_methods = {
         "/collections": ("POST", "stac:collection:create"),
         "/collections/{collection_id}": ("PUT", "stac:collection:update"),
