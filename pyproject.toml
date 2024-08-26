@@ -16,7 +16,7 @@ authors = [
 ]
 dependencies = [
   "cryptography>=43.0.0",
-  "fastapi-slim>=0.111.0",
+  "fastapi>=0.112.0",
   "pydantic-settings>=2.2.1",
   "pyjwt>=2.9.0",
 ]
