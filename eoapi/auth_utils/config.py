@@ -1,7 +1,11 @@
 from typing import Optional, Sequence
 
 from pydantic import AnyHttpUrl
-from pydantic_settings import BaseSettings
+
+try:
+    from pydantic.v1 import BaseSettings  # type:ignore
+except ImportError:
+    from pydantic import BaseSettings  # type:ignore
 
 
 class OpenIdConnectSettings(BaseSettings):

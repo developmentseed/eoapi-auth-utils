@@ -16,8 +16,7 @@ authors = [
 ]
 dependencies = [
   "cryptography>=43.0.0",
-  "fastapi>=0.112.0",
-  "pydantic-settings>=2.2.1",
+  "fastapi>=0.7.0",
   "pyjwt>=2.9.0",
 ]
 description = "Authentication & authorization helpers for eoAPI"
