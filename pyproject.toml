@@ -1,6 +1,10 @@
+# [build-system]
+# build-backend = "pdm.pep517.api"
+# requires = ["pdm-pep517"]
+
 [build-system]
-build-backend = "pdm.pep517.api"
-requires = ["pdm-pep517"]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
 
 [tool.pdm.version]
 path = "eoapi/auth_utils/__init__.py"
@@ -22,7 +26,7 @@ dependencies = [
 description = "Authentication & authorization helpers for eoAPI"
 dynamic = ["version"]
 license = {file = "LICENSE"}
-name = "eoapi.auth_utils"
+name = "eoapi-auth-utils"
 readme = "README.md"
 requires-python = ">=3.8"
 
@@ -36,3 +40,9 @@ testing = [
   "jwcrypto>=1.5.6",
   "pytest>=6.0",
 ]
+
+[tool.mypy]
+no_implicit_optional = true
+strict_optional = true
+namespace_packages = true
+explicit_package_bases = true
