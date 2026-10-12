@@ -12,17 +12,21 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Iterable,
+    List,
+    Mapping,
     Optional,
     Sequence,
+    Union,
 )
 
 import jwt
-from fastapi import HTTPException, Security, routing, security, status
+from fastapi import FastAPI, HTTPException, Security, routing, security, status
 from fastapi.dependencies.utils import get_parameterless_sub_dependant
 from fastapi.security.base import SecurityBase
 from pydantic import AnyHttpUrl
 
-from .errors import OidcFetchError
+from .errors import NoMatchingRoutesError, OidcFetchError
 
 if TYPE_CHECKING:
     from .config import OpenIdConnectSettings
@@ -30,6 +34,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
+
+# Restricted routes: path -> HTTP method -> required scopes
+RestrictedRoutes = Mapping[str, Mapping[str, Optional[Sequence[str]]]]
 
 
 def _unauthorized(detail: str = "Could not validate credentials") -> HTTPException:
@@ -368,3 +375,77 @@ class OpenIdConnectAuth:
         # https://github.com/tiangolo/fastapi/blob/58ab733f19846b4875c5b79bfb1f4d1cb7f4823f/fastapi/applications.py#L337-L360
         # https://github.com/tiangolo/fastapi/blob/58ab733f19846b4875c5b79bfb1f4d1cb7f4823f/fastapi/routing.py#L677-L678
         api_route.dependencies.extend([depends])
+
+    def apply_auth_dependencies_to_app(
+        self,
+        app_or_routes: Union[FastAPI, routing.APIRouter, Iterable[Any]],
+        restricted_routes: RestrictedRoutes,
+        dependency: Optional[Callable[..., Any]] = None,
+        strict: bool = False,
+    ) -> List[routing.APIRoute]:
+        """
+        Apply auth dependencies to every route matching `restricted_routes`
+        (path -> method -> required scopes). Returns the routes that were changed.
+
+        Raises NoMatchingRoutesError when no route matches (or, with `strict`, when
+        any entry has no match). On FastAPI >= 0.137, routes of included routers
+        are resolved lazily and are not visible here: protect them with
+        `FastAPI(dependencies=[...])` or `APIRouter(dependencies=[...])` instead.
+        """
+        routes = (
+            app_or_routes.routes
+            if isinstance(app_or_routes, (FastAPI, routing.APIRouter))
+            else list(app_or_routes)
+        )
+        api_routes = [r for r in routes if isinstance(r, routing.APIRoute)]
+
+        wanted = {
+            (path, method.upper()): scopes
+            for path, methods in restricted_routes.items()
+            for method, scopes in methods.items()
+        }
+        matched: List[routing.APIRoute] = []
+        found = set()
+        for route in api_routes:
+            keys = [
+                (route.path, m.upper())
+                for m in sorted(route.methods)
+                if (route.path, m.upper()) in wanted
+            ]
+            if not keys:
+                continue
+            # A dependency applies to all methods of a route: combine the scopes.
+            scopes: List[str] = []
+            for key in keys:
+                scopes.extend(s for s in wanted[key] or [] if s not in scopes)
+            if len(keys) < len(route.methods):
+                logger.warning(
+                    "Auth dependency on %s applies to all of its methods %s",
+                    route.path,
+                    sorted(route.methods),
+                )
+            self.apply_auth_dependencies(
+                route, required_token_scopes=scopes or None, dependency=dependency
+            )
+            found.update(keys)
+            matched.append(route)
+
+        missing = sorted(set(wanted) - found)
+        lazy_hint = (
+            " Routes of included routers are not listed in app.routes on "
+            "FastAPI >= 0.137; protect them with FastAPI(dependencies=[...]) or "
+            "APIRouter(dependencies=[...]) instead."
+            if any(hasattr(r, "original_router") for r in routes)
+            else ""
+        )
+        if not matched or (strict and missing):
+            raise NoMatchingRoutesError(
+                f"No route matches {', '.join(f'{m} {p}' for p, m in missing)}."
+                + lazy_hint
+            )
+        if missing:
+            logger.warning(
+                "No route matches %s",
+                ", ".join(f"{m} {p}" for p, m in missing),
+            )
+        return matched

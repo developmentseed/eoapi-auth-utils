@@ -6,6 +6,7 @@ from unittest.mock import patch
 import jwt
 import pytest
 from fastapi import (
+    APIRouter,
     Depends,
     FastAPI,
     HTTPException,
@@ -16,7 +17,7 @@ from fastapi import (
 from fastapi.security import SecurityScopes
 from jwcrypto.jwt import JWK
 
-from eoapi.auth_utils import OidcFetchError, OpenIdConnectAuth
+from eoapi.auth_utils import NoMatchingRoutesError, OidcFetchError, OpenIdConnectAuth
 
 
 @pytest.fixture
@@ -488,3 +489,97 @@ def test_reject_wrong_scope(
     token = token_builder({"scope": scope_sent})
     resp = test_client.get("/test-route", headers=bearer(token))
     assert resp.status_code == expected_status
+
+
+@pytest.fixture
+def stac_like_app():
+    app = FastAPI()
+
+    @app.get("/collections")
+    def list_collections():
+        return []
+
+    @app.post("/collections")
+    def create_collection():
+        return {}
+
+    @app.delete("/collections/{collection_id}")
+    def delete_collection(collection_id: str):
+        return {}
+
+    return app
+
+
+def test_apply_auth_dependencies_to_app(auth, stac_like_app, token_builder):
+    routes = auth.apply_auth_dependencies_to_app(
+        stac_like_app,
+        {
+            "/collections": {"POST": ["collection:create"]},
+            "/collections/{collection_id}": {"DELETE": ["collection:delete"]},
+        },
+    )
+    assert len(routes) == 2
+
+    client = testclient.TestClient(stac_like_app)
+    assert client.get("/collections").status_code == 200
+    assert client.post("/collections").status_code in (401, 403)
+    assert client.delete("/collections/x").status_code in (401, 403)
+
+    create = bearer(token_builder({"scope": "collection:create"}))
+    assert client.post("/collections", headers=create).status_code == 200
+    assert client.delete("/collections/x", headers=create).status_code == 401
+
+
+def test_apply_auth_dependencies_to_app_partial(auth, stac_like_app, caplog):
+    restricted = {
+        "/collections": {"post": ["collection:create"]},
+        "/nope": {"GET": None},
+    }
+    assert len(auth.apply_auth_dependencies_to_app(stac_like_app, restricted)) == 1
+    assert "GET /nope" in caplog.text
+
+    with pytest.raises(NoMatchingRoutesError, match="GET /nope"):
+        auth.apply_auth_dependencies_to_app(stac_like_app, restricted, strict=True)
+
+
+@pytest.mark.parametrize(
+    "restricted", [{}, {"/nope": {"GET": None}}, {"/collections": {"PUT": None}}]
+)
+def test_apply_auth_dependencies_to_app_no_match(auth, stac_like_app, restricted):
+    with pytest.raises(NoMatchingRoutesError):
+        auth.apply_auth_dependencies_to_app(stac_like_app, restricted)
+    with pytest.raises(NoMatchingRoutesError):
+        auth.apply_auth_dependencies_to_app([], restricted)
+
+
+def test_apply_auth_dependencies_to_app_included_router(auth):
+    """Fails loudly instead of silently protecting nothing when routes are lazy."""
+    router = APIRouter()
+
+    @router.post("/collections")
+    def create_collection():
+        return {}
+
+    app = FastAPI()
+    app.include_router(router)
+
+    if any(getattr(r, "path", None) == "/collections" for r in app.routes):
+        pytest.skip("FastAPI < 0.137 lists included routes in app.routes")
+    with pytest.raises(NoMatchingRoutesError, match="dependencies="):
+        auth.apply_auth_dependencies_to_app(app, {"/collections": {"POST": None}})
+
+
+def test_app_level_dependencies_protect_included_routers(auth, token_builder):
+    router = APIRouter()
+
+    @router.get("/collections")
+    def collections():
+        return []
+
+    app = FastAPI(dependencies=[Security(auth.valid_token_dependency)])
+    app.include_router(router, prefix="/api")
+    client = testclient.TestClient(app)
+
+    assert client.get("/api/collections").status_code in (401, 403)
+    resp = client.get("/api/collections", headers=bearer(token_builder({})))
+    assert resp.status_code == 200
