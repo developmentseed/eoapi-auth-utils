@@ -17,6 +17,7 @@ class OpenIdConnectSettings(BaseSettings):
     issuer: Optional[str] = None
     required_claims: Sequence[str] = ("exp", "iss")
     discovery_timeout: float = 10.0
+    lazy_discovery: bool = False
 
     model_config = SettingsConfigDict(
         env_prefix="EOAPI_AUTH_",

@@ -1,11 +1,20 @@
 import json
 import logging
 import threading
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from dataclasses import fields as dataclass_fields
-from typing import TYPE_CHECKING, Annotated, Any, Callable, Dict, Optional, Sequence
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Callable,
+    Dict,
+    Optional,
+    Sequence,
+)
 
 import jwt
 from fastapi import HTTPException, Security, routing, security, status
@@ -115,6 +124,10 @@ class OpenIdConnectAuth:
     required_claims: Sequence[str] = ("exp", "iss")
     # Timeout (seconds) for the discovery request.
     discovery_timeout: float = 10.0
+    # Defer discovery to the first request, retrying with exponential backoff.
+    lazy_discovery: bool = False
+    discovery_backoff: float = 1.0
+    discovery_max_backoff: float = 60.0
 
     # Generated attributes
     auth_scheme: SecurityBase = field(init=False)
@@ -127,7 +140,13 @@ class OpenIdConnectAuth:
 
     def __post_init__(self):
         self._discovery_lock = threading.Lock()
-        self.discover()
+        self._next_discovery_attempt = 0.0
+        self._current_backoff = self.discovery_backoff
+
+        if self.lazy_discovery:
+            self.jwks_client = None  # type: ignore[assignment]
+        else:
+            self.discover()
 
         self.auth_scheme = security.OpenIdConnect(
             openIdConnectUrl=str(self.openid_configuration_url)
@@ -135,21 +154,8 @@ class OpenIdConnectAuth:
         self._optional_auth_scheme = security.OpenIdConnect(
             openIdConnectUrl=str(self.openid_configuration_url), auto_error=False
         )
-        self.valid_token_dependency = self.create_auth_token_dependency(
-            auth_scheme=self.auth_scheme,
-            jwks_client=self.jwks_client,
-            allowed_jwt_audiences=self.allowed_jwt_audiences,
-            issuer=self.issuer,
-            required_claims=self.required_claims,
-        )
-        self.optional_token_dependency = self.create_auth_token_dependency(
-            auth_scheme=self._optional_auth_scheme,
-            jwks_client=self.jwks_client,
-            allowed_jwt_audiences=self.allowed_jwt_audiences,
-            issuer=self.issuer,
-            required_claims=self.required_claims,
-            auto_error=False,
-        )
+        self.valid_token_dependency = self._build_dependency(auto_error=True)
+        self.optional_token_dependency = self._build_dependency(auto_error=False)
 
     @classmethod
     def from_settings(cls, settings: "OpenIdConnectSettings") -> "OpenIdConnectAuth":
@@ -213,6 +219,72 @@ class OpenIdConnectAuth:
             self.jwks_client = jwt.PyJWKClient(config["jwks_uri"])
             self.openid_configuration = config
             return config
+
+    def _ensure_discovered(self) -> None:
+        """Lazy discovery: try at most once per backoff window, else 503."""
+        if self.discovered:
+            return
+        now = time.monotonic()
+        if now >= self._next_discovery_attempt:
+            try:
+                self.discover()
+                return
+            except OidcFetchError as e:
+                self._next_discovery_attempt = now + self._current_backoff
+                logger.warning(
+                    "OIDC discovery failed, retrying in %.1fs: %s",
+                    self._current_backoff,
+                    e,
+                )
+                self._current_backoff = min(
+                    self._current_backoff * 2, self.discovery_max_backoff
+                )
+        retry_after = max(1, round(self._next_discovery_attempt - now))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication provider unavailable",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    def _validator(self) -> Callable[[str], Dict[str, Any]]:
+        self._ensure_discovered()
+
+        def validate(token: str) -> Dict[str, Any]:
+            return _decode(
+                token,
+                self.jwks_client,
+                self.allowed_jwt_audiences,
+                self.issuer,
+                self.required_claims,
+            )
+
+        return validate
+
+    def _build_dependency(self, auto_error: bool) -> Callable[..., Any]:
+        auth_scheme = self.auth_scheme if auto_error else self._optional_auth_scheme
+
+        if auto_error:
+
+            def auth_token(
+                auth_header: Annotated[str, Security(auth_scheme)],
+                required_scopes: security.SecurityScopes,
+            ) -> Dict[str, Any]:
+                payload = _validate_header(
+                    auth_header, required_scopes, self._validator
+                )
+                if payload is None:
+                    raise _unauthorized("Not authenticated")
+                return payload
+
+            return auth_token
+
+        def optional_auth_token(
+            required_scopes: security.SecurityScopes,
+            auth_header: Annotated[Optional[str], Security(auth_scheme)] = None,
+        ) -> Optional[Dict[str, Any]]:
+            return _validate_header(auth_header, required_scopes, self._validator)
+
+        return optional_auth_token
 
     @staticmethod
     def create_auth_token_dependency(
