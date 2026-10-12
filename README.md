@@ -21,6 +21,9 @@ pip install eoapi.auth-utils
 | `EOAPI_AUTH_OPENID_CONFIGURATION_URL` | | OIDC discovery URL (public, shown in Swagger UI) |
 | `EOAPI_AUTH_OPENID_CONFIGURATION_INTERNAL_URL` | | Discovery URL fetched by the service, if different |
 | `EOAPI_AUTH_ALLOWED_JWT_AUDIENCES` | `[]` | JSON list of accepted `aud` values |
+| `EOAPI_AUTH_ISSUER` | discovery `issuer` | Expected `iss` claim |
+| `EOAPI_AUTH_REQUIRED_CLAIMS` | `["exp", "iss"]` | Claims every token must contain |
+| `EOAPI_AUTH_DISCOVERY_TIMEOUT` | `10` | Timeout (seconds) of the discovery request |
 | `EOAPI_AUTH_CLIENT_ID`, `EOAPI_AUTH_USE_PKCE` | `""`, `true` | Swagger UI Authorization Code Flow |
 
 ```py
@@ -29,6 +32,12 @@ from eoapi.auth_utils import OpenIdConnectAuth, OpenIdConnectSettings
 auth_settings = OpenIdConnectSettings()  # or OpenIdConnectSettings(_env_prefix="AUTH_")
 oidc_auth = OpenIdConnectAuth.from_settings(auth_settings)
 ```
+
+The discovery document is fetched when `OpenIdConnectAuth` is created (an `OidcFetchError` is raised if that fails) and kept as `oidc_auth.openid_configuration`, e.g. to read `token_endpoint`.
+
+#### Token validation
+
+Tokens must be RS256-signed by a key of the provider's JWKS. They must contain `exp` and `iss`, and `iss` must match the discovery document's `issuer`. If the service fetches discovery from an internal URL that reports a different issuer, set `issuer` (`EOAPI_AUTH_ISSUER`) to the issuer found in the tokens. To accept tokens without `exp`/`iss` (the previous behaviour), set `required_claims=()`.
 
 ### Integration
 
