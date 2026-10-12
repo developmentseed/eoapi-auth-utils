@@ -17,6 +17,7 @@ def test_env_prefix(monkeypatch):
         "https://example.com/.well-known/openid-configuration",
     )
     monkeypatch.setenv("EOAPI_AUTH_ALLOWED_JWT_AUDIENCES", '["a", "b"]')
+    monkeypatch.setenv("EOAPI_AUTH_LAZY_DISCOVERY", "true")
     monkeypatch.setenv("CLIENT_ID", "unprefixed")
 
     settings = OpenIdConnectSettings()
@@ -26,6 +27,7 @@ def test_env_prefix(monkeypatch):
         == "https://example.com/.well-known/openid-configuration"
     )
     assert list(settings.allowed_jwt_audiences) == ["a", "b"]
+    assert settings.lazy_discovery is True
 
 
 def test_env_prefix_override(monkeypatch):

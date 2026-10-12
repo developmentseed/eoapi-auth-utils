@@ -5,7 +5,14 @@ from unittest.mock import patch
 
 import jwt
 import pytest
-from fastapi import Depends, FastAPI, HTTPException, Security, status, testclient
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Security,
+    status,
+    testclient,
+)
 from fastapi.security import SecurityScopes
 from jwcrypto.jwt import JWK
 
@@ -353,6 +360,90 @@ def test_optional_invalid_token(optional_client, token_builder, header):
     resp = optional_client.get(path, headers={"Authorization": header})
     assert resp.status_code == status.HTTP_401_UNAUTHORIZED
     assert resp.headers["WWW-Authenticate"].startswith("Bearer")
+
+
+###############################################################################
+# Lazy discovery
+
+
+def test_lazy_discovery_recovers(oidc, token_builder):
+    oidc.available = False
+    now = [1000.0]
+    with patch("eoapi.auth_utils.auth.time.monotonic", lambda: now[0]):
+        # The app starts although the IdP is down.
+        auth = OpenIdConnectAuth(
+            openid_configuration_url=oidc.discovery_url,
+            lazy_discovery=True,
+            discovery_backoff=2.0,
+        )
+        assert not auth.discovered
+        assert auth.jwks_client is None
+        assert oidc.discovery_requests == 0
+
+        app = FastAPI()
+
+        @app.get("/maybe")
+        def maybe(claims=Depends(auth.optional_token_dependency)):
+            return {"sub": claims["sub"] if claims else None}
+
+        @app.get("/protected", dependencies=[Security(auth.valid_token_dependency)])
+        def protected():
+            return {}
+
+        client = testclient.TestClient(app)
+        headers = bearer(token_builder({"sub": "a"}))
+
+        # Anonymous access doesn't need discovery.
+        assert client.get("/maybe").status_code == 200
+        assert oidc.discovery_requests == 0
+
+        resp = client.get("/protected", headers=headers)
+        assert resp.status_code == 503
+        assert resp.headers["Retry-After"] == "2"
+        assert oidc.discovery_requests == 1
+
+        # Within the backoff window: no new request to the IdP.
+        oidc.available = True
+        now[0] += 1
+        assert client.get("/maybe", headers=headers).status_code == 503
+        assert oidc.discovery_requests == 1
+
+        # After the backoff window: discovery is retried and succeeds.
+        now[0] += 1
+        resp = client.get("/protected", headers=headers)
+        assert resp.status_code == 200
+        assert oidc.discovery_requests == 2
+        assert client.get("/maybe", headers=headers).json() == {"sub": "a"}
+        assert auth.openid_configuration == oidc.config
+        assert oidc.discovery_requests == 2
+
+
+def test_lazy_discovery_backoff_grows(oidc):
+    oidc.available = False
+    now = [0.0]
+    with patch("eoapi.auth_utils.auth.time.monotonic", lambda: now[0]):
+        auth = OpenIdConnectAuth(
+            openid_configuration_url=oidc.discovery_url,
+            lazy_discovery=True,
+            discovery_backoff=1.0,
+            discovery_max_backoff=4.0,
+        )
+        retry_after = []
+        for _ in range(5):
+            with pytest.raises(HTTPException) as exc_info:
+                auth._ensure_discovered()
+            retry_after.append(exc_info.value.headers["Retry-After"])
+            now[0] = auth._next_discovery_attempt
+    assert retry_after == ["1", "2", "4", "4", "4"]
+    assert oidc.discovery_requests == 5
+
+
+def test_discover_explicitly(oidc):
+    auth = OpenIdConnectAuth(
+        openid_configuration_url=oidc.discovery_url, lazy_discovery=True
+    )
+    assert auth.discover() == oidc.config
+    assert auth.jwks_client is not None
 
 
 ###############################################################################
