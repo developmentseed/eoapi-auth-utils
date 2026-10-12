@@ -1,5 +1,7 @@
 import time
+import urllib.request
 from typing import Dict
+from unittest.mock import patch
 
 import jwt
 import pytest
@@ -51,6 +53,52 @@ def test_oidc_auth_initialization(oidc, auth):
     assert auth.auth_scheme is not None
     assert auth.valid_token_dependency is not None
     assert oidc.discovery_requests == 1
+
+
+def test_openid_configuration_is_kept(oidc, auth):
+    assert auth.openid_configuration == oidc.config
+    assert auth.openid_configuration["token_endpoint"] == oidc.token_endpoint
+    assert auth.issuer == oidc.issuer
+    assert auth.discovered
+
+
+def test_internal_url_is_fetched(oidc):
+    auth = OpenIdConnectAuth(
+        openid_configuration_url="https://public.example.com/.well-known/openid-configuration",
+        openid_configuration_internal_url=oidc.discovery_url,
+    )
+    assert auth.openid_configuration == oidc.config
+    assert oidc.discovery_requests == 1
+
+
+def test_discovery_timeout_is_passed(oidc):
+    with patch("urllib.request.urlopen", wraps=urllib.request.urlopen) as urlopen:
+        OpenIdConnectAuth(
+            openid_configuration_url=oidc.discovery_url, discovery_timeout=3.5
+        )
+    assert urlopen.call_args.kwargs["timeout"] == 3.5
+
+
+def test_discovery_timeout(oidc):
+    oidc.delay = 0.5
+    with pytest.raises(OidcFetchError):
+        OpenIdConnectAuth(
+            openid_configuration_url=oidc.discovery_url, discovery_timeout=0.1
+        )
+
+
+def test_discovery_error_status(oidc):
+    oidc.available = False
+    with pytest.raises(OidcFetchError, match="500"):
+        OpenIdConnectAuth(openid_configuration_url=oidc.discovery_url)
+
+
+def test_discovery_unreachable():
+    with pytest.raises(OidcFetchError):
+        OpenIdConnectAuth(
+            openid_configuration_url="http://127.0.0.1:9/.well-known/openid-configuration",
+            discovery_timeout=1,
+        )
 
 
 def test_discovery_without_issuer(oidc):
