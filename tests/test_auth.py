@@ -1,11 +1,11 @@
 import time
 import urllib.request
-from typing import Dict
+from typing import Any, Dict, Optional
 from unittest.mock import patch
 
 import jwt
 import pytest
-from fastapi import FastAPI, HTTPException, status, testclient
+from fastapi import Depends, FastAPI, HTTPException, Security, status, testclient
 from fastapi.security import SecurityScopes
 from jwcrypto.jwt import JWK
 
@@ -52,6 +52,7 @@ def test_oidc_auth_initialization(oidc, auth):
     assert auth.jwks_client is not None
     assert auth.auth_scheme is not None
     assert auth.valid_token_dependency is not None
+    assert auth.optional_token_dependency is not None
     assert oidc.discovery_requests == 1
 
 
@@ -274,6 +275,84 @@ def test_create_auth_token_dependency_compat(auth, token_builder):
     )
     with pytest.raises(HTTPException):
         strict(auth_header=f"Bearer {token}", required_scopes=no_scopes())
+
+
+###############################################################################
+# Optional auth
+
+
+@pytest.fixture
+def optional_client(auth):
+    app = FastAPI()
+
+    @app.get("/maybe")
+    def maybe(
+        claims: Optional[Dict[str, Any]] = Depends(auth.optional_token_dependency),
+    ):
+        return {"sub": claims["sub"] if claims else None}
+
+    @app.get("/maybe-scoped")
+    def maybe_scoped(
+        claims: Optional[Dict[str, Any]] = Security(
+            auth.optional_token_dependency, scopes=["read"]
+        ),
+    ):
+        return {"sub": claims["sub"] if claims else None}
+
+    return testclient.TestClient(app)
+
+
+def test_optional_no_header(optional_client):
+    resp = optional_client.get("/maybe")
+    assert resp.status_code == 200
+    assert resp.json() == {"sub": None}
+
+    # Scopes only apply to callers that send a token.
+    resp = optional_client.get("/maybe-scoped")
+    assert resp.status_code == 200
+
+
+def test_optional_valid_token(optional_client, token_builder):
+    resp = optional_client.get("/maybe", headers=bearer(token_builder({"sub": "a"})))
+    assert resp.status_code == 200
+    assert resp.json() == {"sub": "a"}
+
+
+def test_optional_direct_call(auth):
+    assert (
+        auth.optional_token_dependency(required_scopes=no_scopes(), auth_header=None)
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Basic foo",
+        "Bearer",
+        "Bearer foo.bar.xyz",
+        "expired",
+        "wrong-issuer",
+        "bad-signature",
+        "missing-scope",
+    ],
+)
+def test_optional_invalid_token(optional_client, token_builder, header):
+    path = "/maybe"
+    if header == "expired":
+        header = f"Bearer {token_builder({'exp': int(time.time()) - 60})}"
+    elif header == "wrong-issuer":
+        header = f"Bearer {token_builder({'iss': 'https://evil.example.com'})}"
+    elif header == "bad-signature":
+        other = JWK.generate(kty="RSA", size=2048, kid="test", alg="RS256")
+        header = f"Bearer {token_builder({}, other)}"
+    elif header == "missing-scope":
+        header = f"Bearer {token_builder({'scope': 'write'})}"
+        path = "/maybe-scoped"
+
+    resp = optional_client.get(path, headers={"Authorization": header})
+    assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+    assert resp.headers["WWW-Authenticate"].startswith("Bearer")
 
 
 ###############################################################################

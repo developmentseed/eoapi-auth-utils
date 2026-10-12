@@ -120,6 +120,7 @@ class OpenIdConnectAuth:
     auth_scheme: SecurityBase = field(init=False)
     jwks_client: jwt.PyJWKClient = field(init=False)
     valid_token_dependency: Callable[..., Any] = field(init=False)
+    optional_token_dependency: Callable[..., Any] = field(init=False)
     openid_configuration: Optional[Dict[str, Any]] = field(
         init=False, default=None, repr=False
     )
@@ -131,12 +132,23 @@ class OpenIdConnectAuth:
         self.auth_scheme = security.OpenIdConnect(
             openIdConnectUrl=str(self.openid_configuration_url)
         )
+        self._optional_auth_scheme = security.OpenIdConnect(
+            openIdConnectUrl=str(self.openid_configuration_url), auto_error=False
+        )
         self.valid_token_dependency = self.create_auth_token_dependency(
             auth_scheme=self.auth_scheme,
             jwks_client=self.jwks_client,
             allowed_jwt_audiences=self.allowed_jwt_audiences,
             issuer=self.issuer,
             required_claims=self.required_claims,
+        )
+        self.optional_token_dependency = self.create_auth_token_dependency(
+            auth_scheme=self._optional_auth_scheme,
+            jwks_client=self.jwks_client,
+            allowed_jwt_audiences=self.allowed_jwt_audiences,
+            issuer=self.issuer,
+            required_claims=self.required_claims,
+            auto_error=False,
         )
 
     @classmethod
@@ -210,9 +222,13 @@ class OpenIdConnectAuth:
         *,
         issuer: Optional[str] = None,
         required_claims: Sequence[str] = (),
+        auto_error: bool = True,
     ):
         """
         Create a dependency that validates JWT tokens & scopes.
+
+        With `auto_error=False` (and an `auth_scheme` created with
+        `auto_error=False`), a request without an Authorization header yields None.
         """
 
         def get_validator() -> Callable[[str], Dict[str, Any]]:
@@ -223,16 +239,26 @@ class OpenIdConnectAuth:
 
             return validate
 
-        def auth_token(
-            auth_header: Annotated[str, Security(auth_scheme)],
-            required_scopes: security.SecurityScopes,
-        ):
-            payload = _validate_header(auth_header, required_scopes, get_validator)
-            if payload is None:
-                raise _unauthorized("Not authenticated")
-            return payload
+        if auto_error:
 
-        return auth_token
+            def auth_token(
+                auth_header: Annotated[str, Security(auth_scheme)],
+                required_scopes: security.SecurityScopes,
+            ):
+                payload = _validate_header(auth_header, required_scopes, get_validator)
+                if payload is None:
+                    raise _unauthorized("Not authenticated")
+                return payload
+
+            return auth_token
+
+        def optional_auth_token(
+            required_scopes: security.SecurityScopes,
+            auth_header: Annotated[Optional[str], Security(auth_scheme)] = None,
+        ):
+            return _validate_header(auth_header, required_scopes, get_validator)
+
+        return optional_auth_token
 
     def apply_auth_dependencies(
         self,
