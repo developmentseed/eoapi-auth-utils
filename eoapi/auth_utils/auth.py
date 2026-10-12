@@ -3,7 +3,7 @@ import logging
 import urllib.request
 from dataclasses import dataclass, field
 from dataclasses import fields as dataclass_fields
-from typing import TYPE_CHECKING, Annotated, Any, Callable, Optional, Sequence
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Dict, Optional, Sequence
 
 import jwt
 from fastapi import HTTPException, Security, routing, security, status
@@ -18,12 +18,99 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
+
+
+def _unauthorized(detail: str = "Could not validate credentials") -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers=BEARER_CHALLENGE,
+    )
+
+
+def _decode(
+    token: str,
+    jwks_client: jwt.PyJWKClient,
+    allowed_jwt_audiences: Optional[Sequence[str]],
+    issuer: Optional[str],
+    required_claims: Sequence[str],
+) -> Dict[str, Any]:
+    """Return the validated token payload or raise jwt.PyJWTError."""
+    key = jwks_client.get_signing_key_from_jwt(token).key
+    # PyJWT treats a missing `iss` as an error whenever `issuer` is given; only let
+    # it do so when `iss` is required, otherwise verify `iss` only if present.
+    iss_required = "iss" in required_claims
+    payload = jwt.decode(
+        token,
+        key,
+        algorithms=["RS256"],
+        # NOTE: Audience validation MUST match audience claim if set in token (https://pyjwt.readthedocs.io/en/stable/changelog.html?highlight=audience#id40)
+        audience=allowed_jwt_audiences or None,
+        issuer=issuer if iss_required else None,
+        options={"require": list(required_claims)},
+    )
+    if issuer and not iss_required and "iss" in payload and payload["iss"] != issuer:
+        raise jwt.exceptions.InvalidIssuerError("Invalid issuer")
+    return payload
+
+
+def _validate_header(
+    auth_header: Optional[str],
+    required_scopes: security.SecurityScopes,
+    get_validator: Callable[[], Callable[[str], Dict[str, Any]]],
+) -> Optional[Dict[str, Any]]:
+    """Validate an Authorization header; None when there is no header."""
+    if not auth_header:
+        return None
+
+    # Extract token from header
+    token_parts = auth_header.split(" ")
+    if (
+        len(token_parts) != 2
+        or token_parts[0].lower() != "bearer"
+        or not token_parts[1]
+    ):
+        # Never log the header itself, it may contain credentials.
+        logger.info("Rejected malformed Authorization header")
+        raise _unauthorized()
+    [_, token] = token_parts
+
+    # Parse & validate token
+    validate = get_validator()
+    try:
+        payload = validate(token)
+    except jwt.exceptions.PyJWTError as e:
+        # Exception class only: never log the token.
+        logger.info("Rejected bearer token: %s", type(e).__name__)
+        raise _unauthorized() from e
+
+    # Validate scopes (if required)
+    scope = payload.get("scope")
+    granted = scope.split() if isinstance(scope, str) else []
+    for required_scope in required_scopes.scopes:
+        if required_scope not in granted:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not enough permissions",
+                headers={
+                    "WWW-Authenticate": f'Bearer scope="{required_scopes.scope_str}"'
+                },
+            )
+
+    return payload
+
 
 @dataclass
 class OpenIdConnectAuth:
     openid_configuration_url: AnyHttpUrl
     openid_configuration_internal_url: Optional[AnyHttpUrl] = None
     allowed_jwt_audiences: Optional[Sequence[str]] = None
+
+    # Expected `iss` claim; defaults to the `issuer` of the discovery document.
+    issuer: Optional[str] = None
+    # Claims every token must contain.
+    required_claims: Sequence[str] = ("exp", "iss")
 
     # Generated attributes
     auth_scheme: SecurityBase = field(init=False)
@@ -44,7 +131,15 @@ class OpenIdConnectAuth:
                     f"Request for OIDC config failed with status {response.status}"
                 )
             oidc_config = json.load(response)
-            self.jwks_client = jwt.PyJWKClient(oidc_config["jwks_uri"])
+
+        issuer = self.issuer or oidc_config.get("issuer")
+        if not issuer and "iss" in self.required_claims:
+            raise OidcFetchError(
+                "OIDC config has no issuer; set `issuer` or remove 'iss' from "
+                "`required_claims`"
+            )
+        self.issuer = issuer
+        self.jwks_client = jwt.PyJWKClient(oidc_config["jwks_uri"])
 
         self.auth_scheme = security.OpenIdConnect(
             openIdConnectUrl=str(self.openid_configuration_url)
@@ -53,6 +148,8 @@ class OpenIdConnectAuth:
             auth_scheme=self.auth_scheme,
             jwks_client=self.jwks_client,
             allowed_jwt_audiences=self.allowed_jwt_audiences,
+            issuer=self.issuer,
+            required_claims=self.required_claims,
         )
 
     @classmethod
@@ -66,56 +163,30 @@ class OpenIdConnectAuth:
     def create_auth_token_dependency(
         auth_scheme: SecurityBase,
         jwks_client: jwt.PyJWKClient,
-        allowed_jwt_audiences: Sequence[str],
+        allowed_jwt_audiences: Optional[Sequence[str]],
+        *,
+        issuer: Optional[str] = None,
+        required_claims: Sequence[str] = (),
     ):
         """
         Create a dependency that validates JWT tokens & scopes.
         """
 
+        def get_validator() -> Callable[[str], Dict[str, Any]]:
+            def validate(token: str) -> Dict[str, Any]:
+                return _decode(
+                    token, jwks_client, allowed_jwt_audiences, issuer, required_claims
+                )
+
+            return validate
+
         def auth_token(
             auth_header: Annotated[str, Security(auth_scheme)],
             required_scopes: security.SecurityScopes,
         ):
-            # Extract token from header
-            token_parts = auth_header.split(" ")
-            if len(token_parts) != 2 or token_parts[0].lower() != "bearer":
-                logger.error(f"Invalid token: {auth_header}")
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Could not validate credentials",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-            [_, token] = token_parts
-
-            # Parse & validate token
-            try:
-                key = jwks_client.get_signing_key_from_jwt(token).key
-                payload = jwt.decode(
-                    token,
-                    key,
-                    algorithms=["RS256"],
-                    # NOTE: Audience validation MUST match audience claim if set in token (https://pyjwt.readthedocs.io/en/stable/changelog.html?highlight=audience#id40)
-                    audience=allowed_jwt_audiences,
-                )
-            except (jwt.exceptions.InvalidTokenError, jwt.exceptions.DecodeError) as e:
-                logger.exception(f"InvalidTokenError: {e=}")
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Could not validate credentials",
-                    headers={"WWW-Authenticate": "Bearer"},
-                ) from e
-
-            # Validate scopes (if required)
-            for scope in required_scopes.scopes:
-                if scope not in payload["scope"]:
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Not enough permissions",
-                        headers={
-                            "WWW-Authenticate": f'Bearer scope="{required_scopes.scope_str}"'
-                        },
-                    )
-
+            payload = _validate_header(auth_header, required_scopes, get_validator)
+            if payload is None:
+                raise _unauthorized("Not authenticated")
             return payload
 
         return auth_token

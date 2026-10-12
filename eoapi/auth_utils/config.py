@@ -13,6 +13,10 @@ class OpenIdConnectSettings(BaseSettings):
 
     allowed_jwt_audiences: Optional[Sequence[str]] = []
 
+    # Token validation, see OpenIdConnectAuth
+    issuer: Optional[str] = None
+    required_claims: Sequence[str] = ("exp", "iss")
+
     model_config = SettingsConfigDict(
         env_prefix="EOAPI_AUTH_",
         env_file=".env",
