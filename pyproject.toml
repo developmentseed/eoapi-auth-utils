@@ -17,6 +17,7 @@ authors = [
 dependencies = [
   "cryptography>=43.0.0",
   "fastapi>=0.7.0",
+  "pydantic-settings>=2.2.1",
   "pyjwt>=2.9.0",
 ]
 description = "Authentication & authorization helpers for eoAPI"
@@ -24,7 +25,7 @@ dynamic = ["version"]
 license = {file = "LICENSE"}
 name = "eoapi-auth-utils"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 
 [project.optional-dependencies]
 lint = [

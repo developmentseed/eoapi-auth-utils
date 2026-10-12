@@ -1,11 +1,7 @@
 from typing import Optional, Sequence
 
 from pydantic import AnyHttpUrl
-
-try:
-    from pydantic.v1 import BaseSettings  # type:ignore
-except ImportError:
-    from pydantic import BaseSettings  # type:ignore
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class OpenIdConnectSettings(BaseSettings):
@@ -17,8 +13,8 @@ class OpenIdConnectSettings(BaseSettings):
 
     allowed_jwt_audiences: Optional[Sequence[str]] = []
 
-    model_config = {
-        "env_prefix": "EOAPI_AUTH_",
-        "env_file": ".env",
-        "extra": "allow",
-    }
+    model_config = SettingsConfigDict(
+        env_prefix="EOAPI_AUTH_",
+        env_file=".env",
+        extra="allow",
+    )
