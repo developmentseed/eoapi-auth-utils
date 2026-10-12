@@ -35,6 +35,7 @@ testing = [
   "httpx2>=2.13.1",
   "jwcrypto>=1.6.1",
   "pytest>=9.1.1",
+  "pytest-httpserver>=1.2.0",
 ]
 
 [tool.mypy]
