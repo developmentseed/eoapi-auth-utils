@@ -13,9 +13,10 @@ class OpenIdConnectSettings(BaseSettings):
 
     allowed_jwt_audiences: Sequence[str] | None = []
 
-    # Token validation, see OpenIdConnectAuth
+    # Token validation & discovery, see OpenIdConnectAuth
     issuer: str | None = None
     required_claims: Sequence[str] = ("exp", "iss")
+    discovery_timeout: float = 10.0
 
     model_config = SettingsConfigDict(
         env_prefix="EOAPI_AUTH_",

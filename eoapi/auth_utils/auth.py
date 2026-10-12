@@ -1,5 +1,7 @@
 import json
 import logging
+import threading
+import urllib.error
 import urllib.request
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields
@@ -111,35 +113,20 @@ class OpenIdConnectAuth:
     issuer: str | None = None
     # Claims every token must contain.
     required_claims: Sequence[str] = ("exp", "iss")
+    # Timeout (seconds) for the discovery request.
+    discovery_timeout: float = 10.0
 
     # Generated attributes
     auth_scheme: SecurityBase = field(init=False)
     jwks_client: jwt.PyJWKClient = field(init=False)
     valid_token_dependency: Callable[..., Any] = field(init=False)
+    openid_configuration: dict[str, Any] | None = field(
+        init=False, default=None, repr=False
+    )
 
     def __post_init__(self):
-        logger.debug("Requesting OIDC config")
-        with urllib.request.urlopen(
-            str(self.openid_configuration_internal_url or self.openid_configuration_url)
-        ) as response:
-            if response.status != 200:
-                logger.error(
-                    "Received a non-200 response when fetching OIDC config: %s",
-                    response.text,
-                )
-                raise OidcFetchError(
-                    f"Request for OIDC config failed with status {response.status}"
-                )
-            oidc_config = json.load(response)
-
-        issuer = self.issuer or oidc_config.get("issuer")
-        if not issuer and "iss" in self.required_claims:
-            raise OidcFetchError(
-                "OIDC config has no issuer; set `issuer` or remove 'iss' from "
-                "`required_claims`"
-            )
-        self.issuer = issuer
-        self.jwks_client = jwt.PyJWKClient(oidc_config["jwks_uri"])
+        self._discovery_lock = threading.Lock()
+        self.discover()
 
         self.auth_scheme = security.OpenIdConnect(
             openIdConnectUrl=str(self.openid_configuration_url)
@@ -159,6 +146,62 @@ class OpenIdConnectAuth:
         kwargs = settings.model_dump(include={f.name for f in fields(cls)})
         kwargs["allowed_jwt_audiences"] = kwargs["allowed_jwt_audiences"] or None
         return cls(**kwargs)
+
+    @property
+    def discovered(self) -> bool:
+        """Whether the discovery document has been fetched."""
+        return self.openid_configuration is not None
+
+    def _fetch_openid_configuration(self) -> dict[str, Any]:
+        url = str(
+            self.openid_configuration_internal_url or self.openid_configuration_url
+        )
+        logger.debug("Requesting OIDC config")
+        try:
+            with urllib.request.urlopen(
+                url, timeout=self.discovery_timeout
+            ) as response:
+                if response.status != 200:
+                    raise OidcFetchError(
+                        f"Request for OIDC config failed with status {response.status}"
+                    )
+                config = json.load(response)
+        except OidcFetchError:
+            raise
+        except urllib.error.HTTPError as e:
+            raise OidcFetchError(
+                f"Request for OIDC config failed with status {e.code}"
+            ) from e
+        except (OSError, ValueError) as e:
+            # URLError, timeouts and invalid JSON
+            raise OidcFetchError(
+                f"Request for OIDC config failed: {type(e).__name__}"
+            ) from e
+
+        if not isinstance(config, dict) or not config.get("jwks_uri"):
+            raise OidcFetchError("OIDC config has no jwks_uri")
+        return config
+
+    def discover(self) -> dict[str, Any]:
+        """Fetch the OIDC discovery document (once) and set up the JWKS client.
+
+        Raises OidcFetchError when the document can't be fetched or is invalid.
+        """
+        with self._discovery_lock:
+            if self.openid_configuration is not None:
+                return self.openid_configuration
+
+            config = self._fetch_openid_configuration()
+            issuer = self.issuer or config.get("issuer")
+            if not issuer and "iss" in self.required_claims:
+                raise OidcFetchError(
+                    "OIDC config has no issuer; set `issuer` or remove 'iss' from "
+                    "`required_claims`"
+                )
+            self.issuer = issuer
+            self.jwks_client = jwt.PyJWKClient(config["jwks_uri"])
+            self.openid_configuration = config
+            return config
 
     @staticmethod
     def create_auth_token_dependency(

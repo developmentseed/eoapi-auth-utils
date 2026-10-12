@@ -41,10 +41,13 @@ def test_env_file(tmp_path):
 
 def test_from_settings(monkeypatch, oidc, token_builder):
     monkeypatch.setenv("EOAPI_AUTH_OPENID_CONFIGURATION_URL", oidc.discovery_url)
+    monkeypatch.setenv("EOAPI_AUTH_DISCOVERY_TIMEOUT", "2.5")
     auth = OpenIdConnectAuth.from_settings(OpenIdConnectSettings())
 
+    assert auth.discovery_timeout == 2.5
     assert auth.allowed_jwt_audiences is None
     assert auth.required_claims == ("exp", "iss")
+    assert auth.openid_configuration == oidc.config
 
     token = token_builder({"sub": "alice"})
     payload = auth.valid_token_dependency(
