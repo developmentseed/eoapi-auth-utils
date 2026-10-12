@@ -4,12 +4,37 @@ name: Publish to PyPI and TestPyPI
 on: push
 
 jobs:
+  # Keeps a release PR open for the changes on main (from Conventional Commits).
+  # Merging it tags the release and creates the GitHub Release; the jobs below
+  # then publish it. Kept in this workflow so PyPI trusted publishing still
+  # matches publish.yaml, and because tags created with GITHUB_TOKEN don't
+  # trigger other workflows.
+  release-please:
+    name: Release Please
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+        id: release
+
   build:
     name: Build distribution 📦
+    needs:
+      - release-please
+    # Run on every push, also when release-please is skipped (not on main)
+    if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
@@ -18,7 +43,7 @@ jobs:
         run: >-
           sed
           --in-place
-          -E 's|!\[([^]]*)\]\((\./)?([^)]*)\)|![\1](https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/\3)|g'
+          -E 's|!\[([^]]*)\]\((\./)?([^)]*)\)|![\1](https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.release-please.outputs.tag_name || github.ref_name }}/\3)|g'
           README.md
       - name: Install pypa/build
         run: >-
@@ -37,8 +62,10 @@ jobs:
   publish-to-pypi:
     name: >-
       Publish to PyPI
-    if: startsWith(github.ref, 'refs/tags/') # only publish to PyPI on tag pushes
+    # only publish to PyPI when release-please created a release
+    if: needs.release-please.outputs.release_created == 'true'
     needs:
+      - release-please
       - build
     runs-on: ubuntu-latest
     environment:
@@ -61,11 +88,12 @@ jobs:
       Sign the Python 🐍 distribution 📦 with Sigstore
       and upload them to GitHub Release
     needs:
+      - release-please
       - publish-to-pypi
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write # IMPORTANT: mandatory for making GitHub Releases
+      contents: write # IMPORTANT: mandatory for uploading to GitHub Releases
       id-token: write # IMPORTANT: mandatory for sigstore
 
     steps:
@@ -80,23 +108,15 @@ jobs:
           inputs: >-
             ./dist/*.tar.gz
             ./dist/*.whl
-      - name: Create GitHub Release
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: >-
-          gh release create
-          '${{ github.ref_name }}'
-          --repo '${{ github.repository }}'
-          --generate-notes
       - name: Upload artifact signatures to GitHub Release
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        # Upload to GitHub Release using the `gh` CLI.
-        # `dist/` contains the built packages, and the
+        # Upload to the GitHub Release created by release-please, using the
+        # `gh` CLI. `dist/` contains the built packages, and the
         # sigstore-produced signatures and certificates.
         run: >-
           gh release upload
-          '${{ github.ref_name }}' dist/**
+          '${{ needs.release-please.outputs.tag_name }}' dist/**
           --repo '${{ github.repository }}'
 
   publish-to-testpypi:

@@ -61,10 +61,9 @@ if auth_settings.openid_configuration_url:
 
 ### Releases
 
-Releases are managed via CICD workflow, as described in the [Python Packaging User Guide](https://packaging.python.org/en/latest/guides/publishing-package-distribution-releases-using-github-actions-ci-cd-workflows/). To create a new release:
+Releases are managed with [release-please](https://github.com/googleapis/release-please) and use [Conventional Commits](https://www.conventionalcommits.org/):
 
-1. Update the version in `eoapi/auth_utils/__init__.py` following appropriate [Semantic Versioning convention](https://semver.org/).
-1. Push a tagged commit to `main`, with the tag matching the package's new version number.
+- `fix: ...` produces a patch release, `feat: ...` a minor release. `chore:`, `docs:`, `test:` etc. don't trigger a release.
+- A breaking change (`feat!: ...` or a `BREAKING CHANGE:` footer) produces a minor release while the version is below 1.0.
 
-> [!NOTE]  
-> This package makes use of Github's [automatically generated release notes](https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes). These can be later augmented if one sees fit.
+On every push to `main`, release-please opens or updates a release PR that bumps the version in `eoapi/auth_utils/__init__.py` and updates `CHANGELOG.md`. Merging that PR tags the release and creates the GitHub Release. The package is then published to PyPI ([`publish.yaml`](.github/workflows/publish.yaml)).
