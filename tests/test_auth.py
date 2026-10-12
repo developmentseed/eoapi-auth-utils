@@ -5,7 +5,8 @@ from unittest.mock import MagicMock, patch
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
-from fastapi import FastAPI, HTTPException, Security, status, testclient
+from fastapi import FastAPI, HTTPException, status, testclient
+from fastapi.security import SecurityScopes
 from jwcrypto.jwt import JWK, JWT
 
 from eoapi.auth_utils import OpenIdConnectAuth
@@ -101,7 +102,7 @@ def test_auth_token_valid(token_builder):
     )
 
     token_payload = auth.valid_token_dependency(
-        auth_header=f"Bearer {token}", required_scopes=Security([])
+        auth_header=f"Bearer {token}", required_scopes=SecurityScopes([])
     )
     assert token_payload["scope"] == "test_scope"
 
@@ -118,7 +119,7 @@ def test_auth_token_invalid_audience(token_builder):
 
     with pytest.raises(HTTPException) as exc_info:
         auth.valid_token_dependency(
-            auth_header=f"Bearer {token}", required_scopes=Security([])
+            auth_header=f"Bearer {token}", required_scopes=SecurityScopes([])
         )
 
     assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
@@ -141,7 +142,7 @@ def test_auth_token_invalid_signature(token_builder):
 
     with pytest.raises(HTTPException) as exc_info:
         auth.valid_token_dependency(
-            auth_header=f"Bearer {token}", required_scopes=Security([])
+            auth_header=f"Bearer {token}", required_scopes=SecurityScopes([])
         )
 
     assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
@@ -167,7 +168,9 @@ def test_auth_token_invalid_token(token):
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        auth.valid_token_dependency(auth_header=token, required_scopes=Security([]))
+        auth.valid_token_dependency(
+            auth_header=token, required_scopes=SecurityScopes([])
+        )
 
     assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
     assert exc_info.value.detail == "Could not validate credentials"
@@ -185,7 +188,8 @@ def test_apply_auth_dependencies(test_app, test_client):
 
     resp = test_client.get("/test-route")
     assert resp.json() == {"detail": "Not authenticated"}
-    assert resp.status_code == status.HTTP_403_FORBIDDEN
+    # 403 on FastAPI < 0.116, 401 on later versions
+    assert resp.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
 
 @pytest.mark.parametrize(

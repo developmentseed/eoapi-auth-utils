@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "packages": {
+    ".": {
+      "release-type": "python",
+      "package-name": "eoapi-auth-utils",
+      "include-component-in-tag": false,
+      "include-v-in-tag": false,
+      "bump-minor-pre-major": true,
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "eoapi/auth_utils/__init__.py"
+        }
+      ]
+    }
+  }
+}
