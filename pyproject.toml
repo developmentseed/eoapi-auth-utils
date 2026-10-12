@@ -38,6 +38,9 @@ testing = [
   "pytest>=6.0",
   "pytest-httpserver>=1.0.0",
 ]
+token-exchange = [
+  "httpx>=0.27.0",
+]
 
 [tool.mypy]
 no_implicit_optional = true

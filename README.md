@@ -10,6 +10,8 @@ Helpers for authentication & authorization patterns for [eoAPI applications](htt
 
 ```
 pip install eoapi.auth-utils
+# with the token exchange helper
+pip install "eoapi.auth-utils[token-exchange]"
 ```
 
 ### Configuration
@@ -124,6 +126,40 @@ def items(claims: Optional[Dict[str, Any]] = Depends(oidc_auth.optional_token_de
     if claims is None:
         ...  # anonymous: public items only
 ```
+
+### Token exchange (RFC 8693)
+
+A service that calls another protected service on behalf of the user can exchange the user's access token for a token with the downstream audience. This has been tested with Keycloak Standard Token Exchange v2.
+
+```py
+from eoapi.auth_utils.token_exchange import TokenExchanger
+
+exchanger = TokenExchanger.from_openid_connect(
+    oidc_auth,  # token_endpoint from its discovery document
+    client_id="eoapi-raster",
+    client_secret=settings.client_secret,  # str or pydantic SecretStr
+    audience="data-gateway",
+    # token_url="https://...",  # overrides the discovery token_endpoint
+    # timeout=5.0, maxsize=1024, expiry_skew=30.0
+)
+
+downstream_token = exchanger.exchange(subject_token, subject_exp=claims.get("exp"))
+```
+
+- The exchanger sends a `POST` to the token endpoint, with HTTP Basic client authentication and the form fields `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`, `subject_token`, `subject_token_type`/`requested_token_type=urn:ietf:params:oauth:token-type:access_token`, and `audience`.
+- Exchanged tokens are cached in memory under the SHA-256 of the subject token, never the token itself. The cache holds at most `maxsize` entries (least recently used are evicted). Each entry expires `expiry_skew` seconds before the earlier of `expires_in` and the subject token's `exp`.
+- Concurrent exchanges of the same subject token result in a single request to the IdP.
+- Failures raise `TokenExchangeError` (an `HTTPException`). The subject token is never sent downstream as a fallback.
+
+  | Exchange result | Status |
+  |---|---|
+  | `invalid_grant` / `invalid_token` | 401 |
+  | HTTP 403 / `access_denied` | 403 |
+  | anything else, a timeout, or a malformed response | 502 |
+
+- Tokens, the client secret and response bodies are never logged.
+
+`exchange()` is blocking. Call it from a sync endpoint or dependency, or with `run_in_threadpool`. Create one exchanger per process and `close()` it on shutdown.
 
 
 ## Development
