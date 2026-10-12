@@ -44,6 +44,7 @@ def test_from_settings(monkeypatch, oidc, token_builder):
     auth = OpenIdConnectAuth.from_settings(OpenIdConnectSettings())
 
     assert auth.allowed_jwt_audiences is None
+    assert auth.required_claims == ("exp", "iss")
 
     token = token_builder({"sub": "alice"})
     payload = auth.valid_token_dependency(
@@ -56,9 +57,11 @@ def test_from_settings_audiences(oidc):
     settings = OpenIdConnectSettings(
         openid_configuration_url=oidc.discovery_url,
         allowed_jwt_audiences=["eoapi"],
+        issuer="https://public.example.com",
     )
     auth = OpenIdConnectAuth.from_settings(settings)
     assert list(auth.allowed_jwt_audiences) == ["eoapi"]
+    assert auth.issuer == "https://public.example.com"
 
 
 def test_from_settings_without_url():
