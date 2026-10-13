@@ -31,9 +31,6 @@ class OIDCServer:
             "jwks_uri": httpserver.url_for("/realms/test/jwks"),
             "token_endpoint": self.token_endpoint,
         }
-        # Set to False to make the discovery endpoint fail with a 500.
-        self.available = True
-        self.delay = 0.0
         self.discovery_requests = 0
         httpserver.expect_request(DISCOVERY_PATH).respond_with_handler(self._discovery)
         httpserver.expect_request("/realms/test/jwks").respond_with_json(
@@ -42,10 +39,6 @@ class OIDCServer:
 
     def _discovery(self, request: Request) -> Response:
         self.discovery_requests += 1
-        if self.delay:
-            time.sleep(self.delay)
-        if not self.available:
-            return Response("unavailable", status=500)
         return Response(json.dumps(self.config), content_type="application/json")
 
     def token(self, claims: dict[str, Any], key: Optional["JWK"] = None) -> str:
