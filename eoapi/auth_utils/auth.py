@@ -3,6 +3,7 @@ import logging
 import urllib.request
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from dataclasses import fields as dataclass_fields
 from typing import TYPE_CHECKING, Annotated, Any
 
 import jwt
@@ -57,7 +58,10 @@ class OpenIdConnectAuth:
 
     @classmethod
     def from_settings(cls, settings: "OpenIdConnectSettings") -> "OpenIdConnectAuth":
-        return cls(**settings.model_dump(include=cls.__dataclass_fields__.keys()))
+        init_fields = {f.name for f in dataclass_fields(cls) if f.init}
+        kwargs = settings.model_dump(include=init_fields)
+        kwargs["allowed_jwt_audiences"] = kwargs.get("allowed_jwt_audiences") or None
+        return cls(**{k: v for k, v in kwargs.items() if v is not None})
 
     @staticmethod
     def create_auth_token_dependency(
