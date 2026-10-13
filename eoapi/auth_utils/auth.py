@@ -1,7 +1,5 @@
 import json
 import logging
-import threading
-import urllib.error
 import urllib.request
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields
@@ -40,27 +38,23 @@ def _decode(
 ) -> dict[str, Any]:
     """Return the validated token payload or raise jwt.PyJWTError."""
     key = jwks_client.get_signing_key_from_jwt(token).key
-    # PyJWT treats a missing `iss` as an error whenever `issuer` is given; only let
-    # it do so when `iss` is required, otherwise verify `iss` only if present.
-    iss_required = "iss" in required_claims
-    payload = jwt.decode(
+    return jwt.decode(
         token,
         key,
         algorithms=["RS256"],
         # NOTE: Audience validation MUST match audience claim if set in token (https://pyjwt.readthedocs.io/en/stable/changelog.html?highlight=audience#id40)
         audience=allowed_jwt_audiences or None,
-        issuer=issuer if iss_required else None,
+        # `iss` is only checked when required, so `required_claims=()` also
+        # accepts tokens without it.
+        issuer=issuer if "iss" in required_claims else None,
         options={"require": list(required_claims)},
     )
-    if issuer and not iss_required and "iss" in payload and payload["iss"] != issuer:
-        raise jwt.exceptions.InvalidIssuerError("Invalid issuer")
-    return payload
 
 
 def _validate_header(
     auth_header: str | None,
     required_scopes: security.SecurityScopes,
-    get_validator: Callable[[], Callable[[str], dict[str, Any]]],
+    validate: Callable[[str], dict[str, Any]],
 ) -> dict[str, Any] | None:
     """Validate an Authorization header; None when there is no header."""
     if not auth_header:
@@ -79,7 +73,6 @@ def _validate_header(
     [_, token] = token_parts
 
     # Parse & validate token
-    validate = get_validator()
     try:
         payload = validate(token)
     except jwt.exceptions.PyJWTError as e:
@@ -125,8 +118,15 @@ class OpenIdConnectAuth:
     )
 
     def __post_init__(self):
-        self._discovery_lock = threading.Lock()
-        self.discover()
+        config = self._fetch_openid_configuration()
+        self.issuer = self.issuer or config.get("issuer")
+        if not self.issuer and "iss" in self.required_claims:
+            raise OidcFetchError(
+                "OIDC config has no issuer; set `issuer` or remove 'iss' from "
+                "`required_claims`"
+            )
+        self.jwks_client = jwt.PyJWKClient(config["jwks_uri"])
+        self.openid_configuration = config
 
         self.auth_scheme = security.OpenIdConnect(
             openIdConnectUrl=str(self.openid_configuration_url)
@@ -147,11 +147,6 @@ class OpenIdConnectAuth:
         kwargs["allowed_jwt_audiences"] = kwargs["allowed_jwt_audiences"] or None
         return cls(**kwargs)
 
-    @property
-    def discovered(self) -> bool:
-        """Whether the discovery document has been fetched."""
-        return self.openid_configuration is not None
-
     def _fetch_openid_configuration(self) -> dict[str, Any]:
         url = str(
             self.openid_configuration_internal_url or self.openid_configuration_url
@@ -161,47 +156,14 @@ class OpenIdConnectAuth:
             with urllib.request.urlopen(
                 url, timeout=self.discovery_timeout
             ) as response:
-                if response.status != 200:
-                    raise OidcFetchError(
-                        f"Request for OIDC config failed with status {response.status}"
-                    )
                 config = json.load(response)
-        except OidcFetchError:
-            raise
-        except urllib.error.HTTPError as e:
-            raise OidcFetchError(
-                f"Request for OIDC config failed with status {e.code}"
-            ) from e
         except (OSError, ValueError) as e:
-            # URLError, timeouts and invalid JSON
-            raise OidcFetchError(
-                f"Request for OIDC config failed: {type(e).__name__}"
-            ) from e
+            # HTTP errors, unreachable host, timeouts and invalid JSON
+            raise OidcFetchError(f"Request for OIDC config failed: {e}") from e
 
         if not isinstance(config, dict) or not config.get("jwks_uri"):
             raise OidcFetchError("OIDC config has no jwks_uri")
         return config
-
-    def discover(self) -> dict[str, Any]:
-        """Fetch the OIDC discovery document (once) and set up the JWKS client.
-
-        Raises OidcFetchError when the document can't be fetched or is invalid.
-        """
-        with self._discovery_lock:
-            if self.openid_configuration is not None:
-                return self.openid_configuration
-
-            config = self._fetch_openid_configuration()
-            issuer = self.issuer or config.get("issuer")
-            if not issuer and "iss" in self.required_claims:
-                raise OidcFetchError(
-                    "OIDC config has no issuer; set `issuer` or remove 'iss' from "
-                    "`required_claims`"
-                )
-            self.issuer = issuer
-            self.jwks_client = jwt.PyJWKClient(config["jwks_uri"])
-            self.openid_configuration = config
-            return config
 
     @staticmethod
     def create_auth_token_dependency(
@@ -216,19 +178,16 @@ class OpenIdConnectAuth:
         Create a dependency that validates JWT tokens & scopes.
         """
 
-        def get_validator() -> Callable[[str], dict[str, Any]]:
-            def validate(token: str) -> dict[str, Any]:
-                return _decode(
-                    token, jwks_client, allowed_jwt_audiences, issuer, required_claims
-                )
-
-            return validate
+        def validate(token: str) -> dict[str, Any]:
+            return _decode(
+                token, jwks_client, allowed_jwt_audiences, issuer, required_claims
+            )
 
         def auth_token(
             auth_header: Annotated[str, Security(auth_scheme)],
             required_scopes: security.SecurityScopes,
         ):
-            payload = _validate_header(auth_header, required_scopes, get_validator)
+            payload = _validate_header(auth_header, required_scopes, validate)
             if payload is None:
                 raise _unauthorized("Not authenticated")
             return payload

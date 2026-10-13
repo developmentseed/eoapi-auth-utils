@@ -58,7 +58,6 @@ def test_openid_configuration_is_kept(oidc, auth):
     assert auth.openid_configuration == oidc.config
     assert auth.openid_configuration["token_endpoint"] == oidc.token_endpoint
     assert auth.issuer == oidc.issuer
-    assert auth.discovered
 
 
 def test_internal_url_is_fetched(oidc):
