@@ -66,8 +66,11 @@ def _validate_header(
             options={"require": list(required_claims)},
         )
     except jwt.exceptions.PyJWTError as e:
-        # Exception class only: never log the token.
-        logger.info("Rejected bearer token: %s", type(e).__name__)
+        # Exception class only: never log the token. An unreachable JWKS is a
+        # provider outage, not a bad token, so make it visible to operators.
+        outage = isinstance(e, jwt.exceptions.PyJWKClientConnectionError)
+        level = logging.WARNING if outage else logging.INFO
+        logger.log(level, "Rejected bearer token: %s", type(e).__name__)
         raise _unauthorized() from e
 
     # Validate scopes (if required)

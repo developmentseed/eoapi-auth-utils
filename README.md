@@ -39,6 +39,8 @@ The discovery document is fetched when `OpenIdConnectAuth` is created (an `OidcF
 
 Tokens must be RS256-signed by a key of the provider's JWKS. They must contain `exp` and `iss`, and `iss` must match the discovery document's `issuer`. If the service fetches discovery from an internal URL that reports a different issuer, set `issuer` (`EOAPI_AUTH_ISSUER`) to the issuer found in the tokens. To accept tokens without `exp`/`iss` (the previous behaviour), set `required_claims=()`.
 
+Required scopes are read from the space-separated `scope` claim. A list-valued `scope`, or an `scp` claim (e.g. Azure AD), counts as no scopes, so scoped routes reject such tokens.
+
 ### Integration
 
 In your eoAPI application:

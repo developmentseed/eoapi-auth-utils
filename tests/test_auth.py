@@ -1,3 +1,4 @@
+import logging
 import time
 import urllib.request
 from unittest.mock import patch
@@ -276,6 +277,22 @@ def test_create_auth_token_dependency(auth, token_builder):
     )
     with pytest.raises(HTTPException):
         strict(auth_header=f"Bearer {token}", required_scopes=no_scopes())
+
+
+def test_jwks_outage_is_logged_as_warning(auth, token_builder, caplog):
+    dependency = OpenIdConnectAuth.create_auth_token_dependency(
+        auth.auth_scheme,
+        jwt.PyJWKClient("http://127.0.0.1:1/jwks"),
+        None,
+        issuer=auth.issuer,
+        required_claims=auth.required_claims,
+    )
+    with caplog.at_level(logging.INFO), pytest.raises(HTTPException) as exc:
+        dependency(
+            auth_header=f"Bearer {token_builder({})}", required_scopes=no_scopes()
+        )
+    assert exc.value.status_code == status.HTTP_401_UNAUTHORIZED
+    assert [r.levelno for r in caplog.records] == [logging.WARNING]
 
 
 ###############################################################################
