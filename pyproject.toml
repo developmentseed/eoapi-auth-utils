@@ -17,6 +17,7 @@ authors = [
 dependencies = [
   "cryptography>=50.0.2",
   "fastapi>=0.143.0",
+  "pydantic-settings>=2.15.0",
   "pyjwt>=2.15.1",
 ]
 description = "Authentication & authorization helpers for eoAPI"
@@ -35,6 +36,7 @@ testing = [
   "httpx2>=2.13.1",
   "jwcrypto>=1.6.1",
   "pytest>=9.1.1",
+  "pytest-httpserver>=1.2.0",
 ]
 
 [tool.mypy]

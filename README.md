@@ -12,17 +12,35 @@ Helpers for authentication & authorization patterns for [eoAPI applications](htt
 pip install eoapi.auth-utils
 ```
 
+### Configuration
+
+`OpenIdConnectSettings` reads environment variables (and `.env`) with the `EOAPI_AUTH_` prefix. Pass `_env_prefix` to use another prefix.
+
+| Variable | Default | |
+|---|---|---|
+| `EOAPI_AUTH_OPENID_CONFIGURATION_URL` | | OIDC discovery URL (public, shown in Swagger UI) |
+| `EOAPI_AUTH_OPENID_CONFIGURATION_INTERNAL_URL` | | Discovery URL fetched by the service, if different |
+| `EOAPI_AUTH_ALLOWED_JWT_AUDIENCES` | `[]` | JSON list of accepted `aud` values |
+| `EOAPI_AUTH_CLIENT_ID`, `EOAPI_AUTH_USE_PKCE` | `""`, `true` | Swagger UI Authorization Code Flow |
+
+```py
+from eoapi.auth_utils import OpenIdConnectAuth, OpenIdConnectSettings
+
+auth_settings = OpenIdConnectSettings()  # or OpenIdConnectSettings(_env_prefix="AUTH_")
+oidc_auth = OpenIdConnectAuth.from_settings(auth_settings)
+```
+
 ### Integration
 
 In your eoAPI application:
 
 ```py
-from eoapi.auth_utils import AuthSettings, OpenIdConnectAuth
+from eoapi.auth_utils import OpenIdConnectAuth, OpenIdConnectSettings
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from stac_fastapi.api.app import StacApi
 
-auth_settings = AuthSettings(_env_prefix="AUTH_")
+auth_settings = OpenIdConnectSettings()
 
 api = StacApi(
     app=FastAPI(

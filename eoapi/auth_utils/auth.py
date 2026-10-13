@@ -2,7 +2,7 @@ import json
 import logging
 import urllib.request
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING, Annotated, Any
 
 import jwt
@@ -57,13 +57,17 @@ class OpenIdConnectAuth:
 
     @classmethod
     def from_settings(cls, settings: "OpenIdConnectSettings") -> "OpenIdConnectAuth":
-        return cls(**settings.model_dump(include=cls.__dataclass_fields__.keys()))
+        if settings.openid_configuration_url is None:
+            raise ValueError("openid_configuration_url is required")
+        kwargs = settings.model_dump(include={f.name for f in fields(cls)})
+        kwargs["allowed_jwt_audiences"] = kwargs["allowed_jwt_audiences"] or None
+        return cls(**kwargs)
 
     @staticmethod
     def create_auth_token_dependency(
         auth_scheme: SecurityBase,
         jwks_client: jwt.PyJWKClient,
-        allowed_jwt_audiences: Sequence[str],
+        allowed_jwt_audiences: Sequence[str] | None,
     ):
         """
         Create a dependency that validates JWT tokens & scopes.
