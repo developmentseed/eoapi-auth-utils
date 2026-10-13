@@ -59,3 +59,8 @@ def test_from_settings_audiences(oidc):
     )
     auth = OpenIdConnectAuth.from_settings(settings)
     assert list(auth.allowed_jwt_audiences) == ["eoapi"]
+
+
+def test_from_settings_without_url():
+    with pytest.raises(ValueError, match="openid_configuration_url"):
+        OpenIdConnectAuth.from_settings(OpenIdConnectSettings())

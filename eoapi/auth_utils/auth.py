@@ -58,6 +58,8 @@ class OpenIdConnectAuth:
 
     @classmethod
     def from_settings(cls, settings: "OpenIdConnectSettings") -> "OpenIdConnectAuth":
+        if settings.openid_configuration_url is None:
+            raise ValueError("openid_configuration_url is required")
         init_fields = {f.name for f in dataclass_fields(cls) if f.init}
         kwargs = settings.model_dump(include=init_fields)
         kwargs["allowed_jwt_audiences"] = kwargs.get("allowed_jwt_audiences") or None
