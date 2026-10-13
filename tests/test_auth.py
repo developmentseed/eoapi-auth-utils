@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import jwt
@@ -20,12 +20,12 @@ def test_key() -> "JWK":
 
 
 @pytest.fixture
-def public_key(test_key: "JWK") -> Dict[str, Any]:
+def public_key(test_key: "JWK") -> dict[str, Any]:
     return test_key.export_public(as_dict=True)
 
 
 @pytest.fixture
-def private_key(test_key: "JWK") -> Dict[str, Any]:
+def private_key(test_key: "JWK") -> dict[str, Any]:
     return test_key.export_private(as_dict=True)
 
 
@@ -52,7 +52,7 @@ def mock_jwks(public_key: "rsa.RSAPrivateKey"):
 
 @pytest.fixture
 def token_builder(test_key: "JWK"):
-    def build_token(payload: Dict[str, Any], key=None) -> str:
+    def build_token(payload: dict[str, Any], key=None) -> str:
         jwt_token = JWT(
             header={k: test_key.get(k) for k in ["alg", "kid"]},
             claims=payload,

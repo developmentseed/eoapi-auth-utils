@@ -1,8 +1,9 @@
 import json
 import logging
 import urllib.request
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Annotated, Any, Callable, Optional, Sequence
+from typing import TYPE_CHECKING, Annotated, Any
 
 import jwt
 from fastapi import HTTPException, Security, routing, security, status
@@ -21,8 +22,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class OpenIdConnectAuth:
     openid_configuration_url: AnyHttpUrl
-    openid_configuration_internal_url: Optional[AnyHttpUrl] = None
-    allowed_jwt_audiences: Optional[Sequence[str]] = None
+    openid_configuration_internal_url: AnyHttpUrl | None = None
+    allowed_jwt_audiences: Sequence[str] | None = None
 
     # Generated attributes
     auth_scheme: SecurityBase = field(init=False)
@@ -94,7 +95,7 @@ class OpenIdConnectAuth:
                     audience=allowed_jwt_audiences,
                 )
             except (jwt.exceptions.InvalidTokenError, jwt.exceptions.DecodeError) as e:
-                logger.exception(f"InvalidTokenError: {e=}")
+                logger.exception("InvalidTokenError")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Could not validate credentials",
@@ -119,8 +120,8 @@ class OpenIdConnectAuth:
     def apply_auth_dependencies(
         self,
         api_route: routing.APIRoute,
-        required_token_scopes: Optional[Sequence[str]] = None,
-        dependency: Optional[Callable[..., Any]] = None,
+        required_token_scopes: Sequence[str] | None = None,
+        dependency: Callable[..., Any] | None = None,
     ):
         """
         Apply auth dependencies to a route.
