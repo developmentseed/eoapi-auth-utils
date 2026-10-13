@@ -3,6 +3,7 @@ import logging
 import urllib.request
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields
+from functools import partial
 from typing import TYPE_CHECKING, Annotated, Any
 
 import jwt
@@ -18,14 +19,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
 
-
-def _unauthorized(detail: str = "Could not validate credentials") -> HTTPException:
+def _unauthorized(
+    detail: str = "Could not validate credentials", challenge: str = "Bearer"
+) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail=detail,
-        headers=BEARER_CHALLENGE,
+        headers={"WWW-Authenticate": challenge},
     )
 
 
@@ -74,12 +75,8 @@ def _validate_header(
     granted = scope.split() if isinstance(scope, str) else []
     for required_scope in required_scopes.scopes:
         if required_scope not in granted:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Not enough permissions",
-                headers={
-                    "WWW-Authenticate": f'Bearer scope="{required_scopes.scope_str}"'
-                },
+            raise _unauthorized(
+                "Not enough permissions", f'Bearer scope="{required_scopes.scope_str}"'
             )
 
     return payload
@@ -170,18 +167,19 @@ class OpenIdConnectAuth:
         them explicitly; `issuer=None, required_claims=()` is the old behaviour.
         """
 
+        validate = partial(
+            _validate_header,
+            jwks_client=jwks_client,
+            allowed_jwt_audiences=allowed_jwt_audiences,
+            issuer=issuer,
+            required_claims=required_claims,
+        )
+
         def auth_token(
             auth_header: Annotated[str, Security(auth_scheme)],
             required_scopes: security.SecurityScopes,
         ) -> dict[str, Any]:
-            return _validate_header(
-                auth_header,
-                required_scopes,
-                jwks_client,
-                allowed_jwt_audiences,
-                issuer,
-                required_claims,
-            )
+            return validate(auth_header, required_scopes)
 
         return auth_token
 
