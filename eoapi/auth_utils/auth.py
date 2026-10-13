@@ -69,7 +69,7 @@ class OpenIdConnectAuth:
     def create_auth_token_dependency(
         auth_scheme: SecurityBase,
         jwks_client: jwt.PyJWKClient,
-        allowed_jwt_audiences: Sequence[str],
+        allowed_jwt_audiences: Sequence[str] | None,
     ):
         """
         Create a dependency that validates JWT tokens & scopes.
