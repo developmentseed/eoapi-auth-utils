@@ -29,37 +29,15 @@ def _unauthorized(detail: str = "Could not validate credentials") -> HTTPExcepti
     )
 
 
-def _decode(
-    token: str,
+def _validate_header(
+    auth_header: str,
+    required_scopes: security.SecurityScopes,
     jwks_client: jwt.PyJWKClient,
     allowed_jwt_audiences: Sequence[str] | None,
     issuer: str | None,
     required_claims: Sequence[str],
 ) -> dict[str, Any]:
-    """Return the validated token payload or raise jwt.PyJWTError."""
-    key = jwks_client.get_signing_key_from_jwt(token).key
-    return jwt.decode(
-        token,
-        key,
-        algorithms=["RS256"],
-        # NOTE: Audience validation MUST match audience claim if set in token (https://pyjwt.readthedocs.io/en/stable/changelog.html?highlight=audience#id40)
-        audience=allowed_jwt_audiences or None,
-        # `iss` is only checked when required, so `required_claims=()` also
-        # accepts tokens without it.
-        issuer=issuer if "iss" in required_claims else None,
-        options={"require": list(required_claims)},
-    )
-
-
-def _validate_header(
-    auth_header: str | None,
-    required_scopes: security.SecurityScopes,
-    validate: Callable[[str], dict[str, Any]],
-) -> dict[str, Any] | None:
-    """Validate an Authorization header; None when there is no header."""
-    if not auth_header:
-        return None
-
+    """Return the payload of a valid bearer token, or raise 401."""
     # Extract token from header
     token_parts = auth_header.split(" ")
     if (
@@ -74,7 +52,18 @@ def _validate_header(
 
     # Parse & validate token
     try:
-        payload = validate(token)
+        key = jwks_client.get_signing_key_from_jwt(token).key
+        payload = jwt.decode(
+            token,
+            key,
+            algorithms=["RS256"],
+            # NOTE: Audience validation MUST match audience claim if set in token (https://pyjwt.readthedocs.io/en/stable/changelog.html?highlight=audience#id40)
+            audience=allowed_jwt_audiences or None,
+            # `iss` is only checked when required, so `required_claims=()` also
+            # accepts tokens without it.
+            issuer=issuer if "iss" in required_claims else None,
+            options={"require": list(required_claims)},
+        )
     except jwt.exceptions.PyJWTError as e:
         # Exception class only: never log the token.
         logger.info("Rejected bearer token: %s", type(e).__name__)
@@ -171,26 +160,28 @@ class OpenIdConnectAuth:
         jwks_client: jwt.PyJWKClient,
         allowed_jwt_audiences: Sequence[str] | None,
         *,
-        issuer: str | None = None,
-        required_claims: Sequence[str] = (),
+        issuer: str | None,
+        required_claims: Sequence[str],
     ):
         """
         Create a dependency that validates JWT tokens & scopes.
-        """
 
-        def validate(token: str) -> dict[str, Any]:
-            return _decode(
-                token, jwks_client, allowed_jwt_audiences, issuer, required_claims
-            )
+        `issuer` and `required_claims` have no defaults so that callers choose
+        them explicitly; `issuer=None, required_claims=()` is the old behaviour.
+        """
 
         def auth_token(
             auth_header: Annotated[str, Security(auth_scheme)],
             required_scopes: security.SecurityScopes,
-        ):
-            payload = _validate_header(auth_header, required_scopes, validate)
-            if payload is None:
-                raise _unauthorized("Not authenticated")
-            return payload
+        ) -> dict[str, Any]:
+            return _validate_header(
+                auth_header,
+                required_scopes,
+                jwks_client,
+                allowed_jwt_audiences,
+                issuer,
+                required_claims,
+            )
 
         return auth_token
 

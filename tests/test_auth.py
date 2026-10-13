@@ -255,10 +255,14 @@ def test_tokens_are_not_logged(auth, token_builder, caplog):
     assert token not in caplog.text
 
 
-def test_create_auth_token_dependency_compat(auth, token_builder):
-    """The static factory keeps its positional signature and old defaults."""
+def test_create_auth_token_dependency(auth, token_builder):
+    with pytest.raises(TypeError):
+        OpenIdConnectAuth.create_auth_token_dependency(  # type: ignore[call-arg]
+            auth.auth_scheme, auth.jwks_client, None
+        )
+
     dependency = OpenIdConnectAuth.create_auth_token_dependency(
-        auth.auth_scheme, auth.jwks_client, None
+        auth.auth_scheme, auth.jwks_client, None, issuer=None, required_claims=()
     )
     token = token_builder({"exp": None, "iss": None, "scope": "a"})
     assert dependency(auth_header=f"Bearer {token}", required_scopes=no_scopes())
