@@ -2,8 +2,7 @@ import json
 import logging
 import urllib.request
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
-from dataclasses import fields as dataclass_fields
+from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING, Annotated, Any
 
 import jwt
@@ -60,10 +59,9 @@ class OpenIdConnectAuth:
     def from_settings(cls, settings: "OpenIdConnectSettings") -> "OpenIdConnectAuth":
         if settings.openid_configuration_url is None:
             raise ValueError("openid_configuration_url is required")
-        init_fields = {f.name for f in dataclass_fields(cls) if f.init}
-        kwargs = settings.model_dump(include=init_fields)
-        kwargs["allowed_jwt_audiences"] = kwargs.get("allowed_jwt_audiences") or None
-        return cls(**{k: v for k, v in kwargs.items() if v is not None})
+        kwargs = settings.model_dump(include={f.name for f in fields(cls)})
+        kwargs["allowed_jwt_audiences"] = kwargs["allowed_jwt_audiences"] or None
+        return cls(**kwargs)
 
     @staticmethod
     def create_auth_token_dependency(
