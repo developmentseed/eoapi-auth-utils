@@ -25,11 +25,9 @@ class OIDCServer:
         self.key = key
         self.issuer = httpserver.url_for("/realms/test")
         self.discovery_url = httpserver.url_for(DISCOVERY_PATH)
-        self.token_endpoint = httpserver.url_for("/realms/test/token")
         self.config: dict[str, Any] = {
             "issuer": self.issuer,
             "jwks_uri": httpserver.url_for("/realms/test/jwks"),
-            "token_endpoint": self.token_endpoint,
         }
         self.discovery_requests = 0
         httpserver.expect_request(DISCOVERY_PATH).respond_with_handler(self._discovery)
